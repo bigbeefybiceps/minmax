@@ -209,10 +209,13 @@ function completedLogs() {
     .slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }
 
-function lastPerformance(exName, beforeIso) {
+/// Most recent completed performance of an exercise, matched to the SAME training
+/// day — Leg Extension on Lower 1 references last week's Lower 1, not Lower 2.
+function lastPerformance(exName, dayName, beforeIso) {
   const sorted = state.logs.slice().sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   for (const log of sorted) {
     if (log.status !== "completed" || log.startedAt >= beforeIso) continue;
+    if (dayName && log.dayName !== dayName) continue;
     const ex = log.exercises.find((e) => e.performedName === exName && e.sets.some((s) => s.completed && !s.isWarmup));
     if (ex) return { ex, date: log.startedAt };
   }
@@ -398,9 +401,11 @@ function openSessionSheet(logId) {
         <button class="linklike bold" id="session-finish-btn"></button>
       </div>
       <div class="sheet-body" id="session-body"></div>
+      <div class="sheet-footer" id="session-footer"></div>
     </div>`;
   $("#modals").appendChild(modal);
   renderSessionBody(logId);
+  renderSessionFooter();
 }
 
 function renderSessionBody(logId) {
@@ -434,14 +439,20 @@ function renderSessionBody(logId) {
     html += renderExercise(log, exLog, exIdx, pEx);
   });
 
-  html += `<div style="display:flex; gap:10px; margin-top:6px;">
-      <button class="secondary" style="flex:1;" onclick="MX.openRestMenu()">⏱ Rest timer</button>
-      <button class="secondary" style="flex:1;" onclick="MX.openPlates()">⊙ Plates</button>
-    </div>
-    ${!finished ? `<button class="linklike danger" style="margin-top:10px;" onclick="MX.discard('${log.id}')">Discard workout</button>` : ""}
-    <div style="height:70px;"></div>`;
+  html += `${!finished ? `<button class="linklike danger" style="margin-top:10px;" onclick="MX.discard('${log.id}')">Discard workout</button>` : ""}
+    <div style="height:12px;"></div>`;
 
   $("#session-body").innerHTML = html;
+}
+
+/// Always-visible action bar pinned under the scrolling session body.
+/// Shows the rest-timer + plate-calculator buttons, or the running countdown.
+function renderSessionFooter() {
+  const footer = $("#session-footer");
+  if (!footer) return;
+  footer.innerHTML = `
+    <button class="secondary" style="flex:1;" onclick="MX.openRestMenu()">⏱ Rest timer</button>
+    <button class="secondary" style="flex:1;" onclick="MX.openPlates()">⊙ Plates</button>`;
 }
 
 function renderExercise(log, exLog, exIdx, pEx) {
@@ -452,8 +463,10 @@ function renderExercise(log, exLog, exIdx, pEx) {
     pEx.rest ? `rest ${pEx.rest}` : null,
   ].filter(Boolean).join(" · ");
 
-  const prev = lastPerformance(exLog.performedName, log.startedAt);
+  const prev = lastPerformance(exLog.performedName, log.dayName, log.startedAt);
   const prevSets = prev ? prev.ex.sets.filter((s) => s.completed && !s.isWarmup) : [];
+  // Full local calendar date of the previous session (derived from its start timestamp)
+  const prevDateLabel = prev ? fmtDate(ymd(new Date(prev.date))) : "";
 
   const subs = [pEx.sub1, pEx.sub2].filter((s) => s && s !== "See Notes");
 
@@ -463,7 +476,8 @@ function renderExercise(log, exLog, exIdx, pEx) {
       ${exLog.performedName !== exLog.plannedName ? `<div class="small orange">substituted for ${esc(exLog.plannedName)}</div>` : ""}
       <div class="muted small">${esc(target)}</div>
       ${pEx.intensityTechnique ? `<div class="technique">🔥 Last set: ${esc(pEx.intensityTechnique)}</div>` : ""}
-      ${prev ? `<div class="small blue" style="margin-top:2px;">Last time (${fmtDateTime(prev.date).split(",")[0]}): ${prevSummary(prevSets)}</div>` : ""}
+      ${prev ? `<div class="small blue" style="margin-top:2px;">Last ${esc(log.dayName)} (${prevDateLabel}): ${prevSummary(prevSets)}</div>` : ""}
+      ${prev && prev.ex.notes ? `<div class="small muted" style="margin-top:2px; font-style:italic;">📝 Last time: ${esc(prev.ex.notes)}</div>` : ""}
     </div>
     <div style="display:flex; gap:6px;">
       ${pEx.notes ? `<button class="secondary" onclick="MX.showNotes('${log.id}',${exIdx})" title="Program notes">ℹ️</button>` : ""}
@@ -680,6 +694,7 @@ const MX = {
 
   /* progress */
   setMetric(m) { progMetric = m; render(); },
+  setScope(s) { progScope = s; render(); },
   setDayFilter(v) { progDay = v; render(); },
   setExFilter(v) { progEx = v; render(); },
   setRangeStart(v) { progStart = v || null; render(); },
@@ -785,12 +800,15 @@ function startRestFromPrescription(restStr) {
 
 function startRestTimer(seconds) {
   stopRestTimer(false);
+  const footer = $("#session-footer");
+  if (!footer) return;
   restEndsAt = Date.now() + seconds * 1000;
-  const bar = document.createElement("div");
-  bar.id = "restbar";
-  bar.innerHTML = `⏱ <span class="time" id="rest-time"></span><span class="muted">rest</span>
-    <span style="flex:1"></span><button class="secondary" onclick="MX.skipRest()">Skip</button>`;
-  document.body.appendChild(bar);
+  footer.innerHTML = `<span style="font-size:20px;">⏱</span>
+    <span class="time" id="rest-time" style="font-size:22px; font-weight:800; font-variant-numeric:tabular-nums;"></span>
+    <span class="muted">rest</span>
+    <span style="flex:1"></span>
+    <button class="secondary" onclick="MX.openPlates()">⊙</button>
+    <button class="secondary" onclick="MX.skipRest()">Skip</button>`;
   const tick = () => {
     const left = Math.max(0, Math.round((restEndsAt - Date.now()) / 1000));
     const el = $("#rest-time");
@@ -805,8 +823,7 @@ function stopRestTimer(fireAlert) {
   if (restInterval) clearInterval(restInterval);
   restInterval = null;
   restEndsAt = null;
-  const bar = $("#restbar");
-  if (bar) bar.remove();
+  renderSessionFooter(); // restore the buttons if the session sheet is still open
   if (fireAlert) {
     if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
     playTimerSound(state.settings.restTimerSound);
@@ -1052,17 +1069,27 @@ function openDetailSheet(log) {
 /* ---------------- Progress ---------------- */
 
 let progMetric = "volume";
+let progScope = "weekly"; // daily | weekly | monthly
 let progDay = "all";
 let progEx = "all";
 let progStart = null; // null = program start
 let progEnd = null;   // null = today
+
+/// Calendar bucket (local) a timestamp falls into: day, Monday-started week, or month.
+function bucketStart(t) {
+  const d = new Date(t);
+  if (progScope === "daily") return ymd(d);
+  if (progScope === "monthly") return ymd(new Date(d.getFullYear(), d.getMonth(), 1));
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+  return ymd(monday);
+}
 
 function chartPoints() {
   const start = progStart || state.settings.programStartDate;
   const end = progEnd || todayYmd();
   const from = parseYmd(start).getTime();
   const to = parseYmd(end).getTime() + 86400000;
-  const pts = [];
+  const raw = [];
   for (const log of completedLogs()) {
     const t = new Date(log.startedAt).getTime();
     if (t < from || t >= to) continue;
@@ -1071,14 +1098,24 @@ function chartPoints() {
       const vol = progEx === "all"
         ? logVolumeKg(log)
         : log.exercises.filter((e) => e.performedName === progEx).reduce((a, e) => a + exVolumeKg(e), 0);
-      if (vol > 0) pts.push({ t, v: vol });
+      if (vol > 0) raw.push({ t, v: vol });
     } else {
       const cands = log.exercises.filter((e) => progEx === "all" || e.performedName === progEx);
       const best = cands.map(exBestE1RM).filter((v) => v != null);
-      if (best.length) pts.push({ t, v: Math.max(...best) });
+      if (best.length) raw.push({ t, v: Math.max(...best) });
     }
   }
-  return pts;
+  // Aggregate into scope buckets: volume sums within a bucket, est. 1RM takes the best.
+  const buckets = new Map();
+  for (const p of raw) {
+    const key = bucketStart(p.t);
+    const cur = buckets.get(key);
+    if (cur == null) buckets.set(key, p.v);
+    else buckets.set(key, progMetric === "volume" ? cur + p.v : Math.max(cur, p.v));
+  }
+  return [...buckets.entries()]
+    .map(([key, v]) => ({ t: parseYmd(key).getTime(), v }))
+    .sort((a, b) => a.t - b.t);
 }
 
 function loggedExerciseNames() {
@@ -1100,6 +1137,11 @@ function renderProgress() {
       <div class="segmented" style="margin-bottom:10px;">
         <button class="${progMetric === "volume" ? "on" : ""}" onclick="MX.setMetric('volume')">Volume</button>
         <button class="${progMetric === "e1rm" ? "on" : ""}" onclick="MX.setMetric('e1rm')">Est. 1RM</button>
+      </div>
+      <div class="segmented" style="margin-bottom:10px;">
+        ${["daily", "weekly", "monthly"].map((s) =>
+          `<button class="${progScope === s ? "on" : ""}" onclick="MX.setScope('${s}')">${s[0].toUpperCase() + s.slice(1)}</button>`
+        ).join("")}
       </div>
       ${progMetric === "volume" ? `<label class="field"><span>Day</span>
         <select onchange="MX.setDayFilter(this.value)">
@@ -1126,7 +1168,7 @@ function renderProgress() {
     html += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
       <span style="font-size:24px;">${up ? "📈" : "📉"}</span>
       <div><div class="bold ${up ? "green" : "red"}" style="font-size:20px;">${up ? "+" : ""}${change.toFixed(1)}%</div>
-      <div class="muted small">${progMetric === "volume" ? "volume" : "est. 1RM"} · ${fmtDate(start)} → ${fmtDate(end)}</div></div>
+      <div class="muted small">${progScope} ${progMetric === "volume" ? "volume" : "est. 1RM"} · ${fmtDate(start)} → ${fmtDate(end)}</div></div>
     </div>`;
   }
   if (!pts.length) {
@@ -1379,6 +1421,7 @@ function openSettings() {
     <div class="card">
       <label class="field"><span>Week 1 start date</span>
         <input type="date" value="${s.programStartDate}" onchange="MX.setStartDate(this.value)"></label>
+      <div class="muted small" style="margin-bottom:10px;">Week 1 begins on a ${parseYmd(s.programStartDate).toLocaleDateString(undefined, { weekday: "long" })} — each session lands on the same weekday every week, so pick the weekday you actually start on.</div>
       <button class="secondary" onclick="MX.postponeDeload()">Postpone deload by one week</button>
     </div>
 

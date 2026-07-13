@@ -1,5 +1,5 @@
 // Cache-first service worker so the app works offline once visited.
-const CACHE = "minmax-v1";
+const CACHE = "minmax-v2";
 const ASSETS = [
   ".", "index.html", "styles.css", "app.js", "program.js",
   "manifest.webmanifest", "icon-192.png", "icon-512.png",

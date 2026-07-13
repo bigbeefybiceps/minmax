@@ -239,22 +239,16 @@ label.field > span { display: block; font-size: 13px; color: var(--text2); margi
 .badge.inprogress { background: rgba(10,132,255,0.15); color: var(--blue); }
 .technique { color: var(--red); font-size: 12px; font-weight: 700; margin-top: 2px; }
 
-/* Rest timer bar */
-#restbar {
-  position: fixed;
-  left: 0; right: 0;
-  bottom: 0;
+/* Sticky footer inside sheets (session actions / rest timer) */
+.sheet-footer {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-  background: var(--card);
+  gap: 10px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
-  z-index: 80;
-  max-width: 640px;
-  margin: 0 auto;
+  background: var(--card);
 }
-#restbar .time { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.sheet-footer:empty { display: none; }
 
 /* Calendar */
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
